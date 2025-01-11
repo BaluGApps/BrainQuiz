@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import 'react-native-gesture-handler';
+import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createStackNavigator } from '@react-navigation/stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import SplashScreen from './src/Screens/SplashScreen';
 import HomeScreen from './src/Screens/HomeScreen';
@@ -14,32 +15,25 @@ import SpeedMath from './src/Sections/SpeedMath';
 import LogicPuzzles from './src/Sections/LogicPuzzles';
 import NumberSeries from './src/Sections/NumberSeries';
 
-const Stack = createNativeStackNavigator();
+const Stack = createStackNavigator();
 
 const App = () => {
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    // Simulate loading time
-    setTimeout(() => {
-      setIsLoading(false);
-    }, 3000);
-  }, []);
-
-  if (isLoading) {
-    return <SplashScreen />;
-  }
-
   return (
     <SafeAreaProvider>
       <NavigationContainer>
         <Stack.Navigator
+          initialRouteName="Splash"
           screenOptions={{
             headerShown: false,
             animation: 'slide_from_right',
             contentStyle: { backgroundColor: '#F8F9FA' },
           }}
         >
+          <Stack.Screen 
+            name="Splash" 
+            component={SplashScreen}
+            options={{ animationEnabled: false }}
+          />
           <Stack.Screen name="Home" component={HomeScreen} />
           <Stack.Screen name="Addition" component={Addition} />
           <Stack.Screen name="Subtraction" component={Substraction} />
