@@ -109,10 +109,7 @@ const SplashScreen = ({ navigation }) => {
     <View style={styles.container}>
       <StatusBar translucent backgroundColor="transparent" />
       <LinearGradient
-        colors={['#4158D0', '#C850C0', '#FFCC70']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.gradient}
+        colors={['#1F2125', '#2C2F34']} style={styles.container}
       >
         <Animated.View style={[styles.content, containerStyle]}>
           <Animated.View style={[styles.logoContainer, rotatingStyle]}>

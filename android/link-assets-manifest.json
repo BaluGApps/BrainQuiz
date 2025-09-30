@@ -1,0 +1,13 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "src/assets/sounds/correct.mp3",
+      "sha1": "c36cbc15fd515c9fb865338fa3f9c2023b331c42"
+    },
+    {
+      "path": "src/assets/sounds/incorrect.mp3",
+      "sha1": "4cf295a86d52d18495be0d5570f0048134d9b8ed"
+    }
+  ]
+}

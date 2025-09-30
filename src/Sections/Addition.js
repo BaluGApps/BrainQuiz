@@ -11,321 +11,390 @@
 
 // export default Addition
 
-import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, StatusBar, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import Animated, { FadeInDown, FadeIn, FadeOut } from 'react-native-reanimated';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  FadeIn,
+  FadeInDown,
+  FadeOut,
+} from 'react-native-reanimated';
 import {
   widthPercentageToDP as wp,
   heightPercentageToDP as hp,
 } from 'react-native-responsive-screen';
+import HapticFeedback from 'react-native-haptic-feedback';
+import Sound from 'react-native-sound';
 
-// Local data for addition problems based on difficulty
-const problemSets = {
-  easy: [
-    { id: 1, num1: 5, num2: 3, options: [6, 8, 9, 7] },
-    { id: 2, num1: 4, num2: 2, options: [6, 5, 7, 8] },
-    { id: 3, num1: 7, num2: 4, options: [11, 10, 12, 9] },
-    // Add more problems as needed
-  ],
-  medium: [
-    { id: 1, num1: 15, num2: 26, options: [41, 40, 42, 39] },
-    { id: 2, num1: 28, num2: 35, options: [63, 62, 64, 61] },
-    { id: 3, num1: 45, num2: 17, options: [62, 61, 63, 60] },
-    // Add more problems as needed
-  ],
-  hard: [
-    { id: 1, num1: 123, num2: 456, options: [579, 578, 580, 577] },
-    { id: 2, num1: 234, num2: 567, options: [801, 800, 802, 799] },
-    { id: 3, num1: 345, num2: 678, options: [1023, 1022, 1024, 1021] },
-    // Add more problems as needed
-  ],
+// --- CONSTANTS ---
+const TOTAL_QUESTIONS = 100;
+const OPTIONS_COUNT = 4;
+const FEEDBACK_DELAY = 500; // 1 second delay for feedback
+
+// --- SOUND SETUP ---
+// Enable playback in silence mode
+Sound.setCategory('Playback');
+
+const loadSound = (soundName) => {
+  return new Sound(soundName, Sound.MAIN_BUNDLE, (error) => {
+    if (error) {
+      console.log(`Failed to load the sound ${soundName}`, error);
+      return;
+    }
+  });
 };
 
+// --- HELPER FUNCTIONS ---
+const shuffleArray = (array) => {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+};
+
+// --- MAIN COMPONENT ---
 const Addition = ({ navigation }) => {
   const insets = useSafeAreaInsets();
-  const [currentDifficulty, setCurrentDifficulty] = useState('easy');
-  const [currentProblem, setCurrentProblem] = useState(0);
+  const [questions, setQuestions] = useState([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [score, setScore] = useState(0);
-  const [showResult, setShowResult] = useState(false);
-  const [isCorrect, setIsCorrect] = useState(false);
-  const [streak, setStreak] = useState(0);
-  const [gameStarted, setGameStarted] = useState(false);
+  const [selectedAnswer, setSelectedAnswer] = useState(null);
+  const [isCorrect, setIsCorrect] = useState(null);
+  const [isGameOver, setIsGameOver] = useState(false);
 
-  const getCurrentProblem = () => problemSets[currentDifficulty][currentProblem];
+  // For sound effects
+  const correctSound = useRef(loadSound('correct.mp3')).current;
+  const incorrectSound = useRef(loadSound('incorrect.mp3')).current;
 
-  const handleAnswer = (selectedAnswer) => {
-    const problem = getCurrentProblem();
-    const correctAnswer = problem.num1 + problem.num2;
-    const correct = selectedAnswer === correctAnswer;
+  // For animations
+  const progress = useSharedValue(0);
+  const questionKey = useSharedValue(0); // Used to re-trigger animation
 
-    setIsCorrect(correct);
-    setShowResult(true);
+  const progressStyle = useAnimatedStyle(() => {
+    return {
+      width: `${progress.value}%`,
+    };
+  });
+
+  // --- GAME LOGIC ---
+  useEffect(() => {
+    generateQuestions();
+  }, []);
+
+  const generateQuestions = () => {
+    let newQuestions = [];
+    for (let i = 0; i < TOTAL_QUESTIONS; i++) {
+      // Difficulty scales with progress
+      const num1 = Math.floor(Math.random() * (10 + i * 2)) + 1;
+      const num2 = Math.floor(Math.random() * (10 + i * 2)) + 1;
+      const correctAnswer = num1 + num2;
+
+      let options = new Set([correctAnswer]);
+      while (options.size < OPTIONS_COUNT) {
+        const randomOffset = Math.floor(Math.random() * 10) - 5;
+        const wrongAnswer = correctAnswer + randomOffset;
+        if (wrongAnswer !== correctAnswer && wrongAnswer > 0) {
+          options.add(wrongAnswer);
+        }
+      }
+      newQuestions.push({
+        question: `${num1} + ${num2}`,
+        answer: correctAnswer,
+        options: shuffleArray(Array.from(options)),
+      });
+    }
+    setQuestions(newQuestions);
+  };
+
+  const handleAnswerPress = (answer) => {
+    if (selectedAnswer !== null) return; // Prevent multiple taps
+
+    setSelectedAnswer(answer);
+    const correct = answer === questions[currentQuestionIndex].answer;
     
+    HapticFeedback.trigger(correct ? 'impactMedium' : 'notificationError');
+
     if (correct) {
-      setScore(score + (streak + 1) * 10);
-      setStreak(streak + 1);
+      setIsCorrect(true);
+      setScore((prev) => prev + 1);
+      progress.value = withTiming(((score + 1) / TOTAL_QUESTIONS) * 100);
+      correctSound?.play();
     } else {
-      setStreak(0);
+      setIsCorrect(false);
+      incorrectSound?.play();
     }
 
     setTimeout(() => {
-      setShowResult(false);
-      if (currentProblem < problemSets[currentDifficulty].length - 1) {
-        setCurrentProblem(currentProblem + 1);
+      const nextQuestionIndex = currentQuestionIndex + 1;
+      if (nextQuestionIndex < TOTAL_QUESTIONS) {
+        setCurrentQuestionIndex(nextQuestionIndex);
+        questionKey.value += 1; // Trigger re-animation
       } else {
-        // Handle game completion
-        setGameStarted(false);
+        setIsGameOver(true);
       }
-    }, 1000);
+      // Reset for next question
+      setSelectedAnswer(null);
+      setIsCorrect(null);
+    }, FEEDBACK_DELAY);
   };
 
-  const startGame = (difficulty) => {
-    setCurrentDifficulty(difficulty);
-    setCurrentProblem(0);
+  const restartGame = () => {
+    generateQuestions();
     setScore(0);
-    setStreak(0);
-    setGameStarted(true);
+    setCurrentQuestionIndex(0);
+    setIsGameOver(false);
+    setSelectedAnswer(null);
+    setIsCorrect(null);
+    progress.value = withTiming(0);
+    questionKey.value += 1;
   };
-
-  const renderDifficultySelection = () => (
-    <Animated.View 
-      entering={FadeInDown.delay(200)}
-      style={styles.difficultyContainer}
-    >
-      <Text style={styles.selectText}>Select Difficulty</Text>
-      <View style={styles.difficultyButtons}>
-        {['easy', 'medium', 'hard'].map((difficulty) => (
-          <TouchableOpacity
-            key={difficulty}
-            onPress={() => startGame(difficulty)}
-            style={[styles.difficultyButton]}
-          >
-            <LinearGradient
-              colors={difficulty === 'easy' ? ['#4ECDC4', '#45B7D1'] : 
-                     difficulty === 'medium' ? ['#FF6B6B', '#FF8E53'] :
-                     ['#9B5DE5', '#F15BB5']}
-              style={styles.gradientButton}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <Text style={styles.difficultyButtonText}>
-                {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
-              </Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        ))}
+  
+  // --- UI COMPONENTS ---
+  const renderHeader = () => (
+    <View style={styles.header}>
+      <Pressable onPress={() => navigation.goBack()}>
+        <Icon name="close" size={wp('8%')} color="#FFF" />
+      </Pressable>
+      <View style={styles.scoreContainer}>
+        <Icon name="star-circle" size={wp('6%')} color="#FFD700" />
+        <Text style={styles.scoreText}>{score}</Text>
       </View>
+    </View>
+  );
+
+  const renderProgressBar = () => (
+    <View>
+      <Text style={styles.progressText}>
+        Question {currentQuestionIndex + 1}/{TOTAL_QUESTIONS}
+      </Text>
+      <View style={styles.progressBarBackground}>
+        <Animated.View style={[styles.progressBar, progressStyle]} />
+      </View>
+    </View>
+  );
+
+  const renderQuestion = () => (
+    <Animated.View key={questionKey.value} entering={FadeInDown.duration(500)} style={styles.questionContainer}>
+      <Text style={styles.questionText}>
+        {questions[currentQuestionIndex]?.question} = ?
+      </Text>
     </Animated.View>
   );
 
-  const renderGame = () => {
-    const problem = getCurrentProblem();
-    
-    return (
-      <Animated.View 
-        entering={FadeIn}
-        style={styles.gameContainer}
-      >
-        <View style={styles.scoreContainer}>
-          <Text style={styles.scoreText}>Score: {score}</Text>
-          <Text style={styles.streakText}>
-            Streak: {streak} {streak > 0 ? '🔥' : ''}
-          </Text>
-        </View>
+  const renderOptions = () => (
+    <View style={styles.optionsGrid}>
+      {questions[currentQuestionIndex]?.options.map((option, index) => {
+        const isSelected = selectedAnswer === option;
+        const isTheCorrectAnswer = option === questions[currentQuestionIndex].answer;
 
-        <View style={styles.problemContainer}>
-          <Text style={styles.problemText}>
-            {problem.num1} + {problem.num2} = ?
-          </Text>
-        </View>
-
-        <View style={styles.optionsContainer}>
-          {problem.options.map((option) => (
-            <TouchableOpacity
-              key={option}
-              onPress={() => handleAnswer(option)}
-              style={styles.optionButton}
-            >
-              <LinearGradient
-                colors={['#4158D0', '#C850C0']}
-                style={styles.gradientButton}
-              >
-                <Text style={styles.optionText}>{option}</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {showResult && (
-          <Animated.View
-            entering={FadeIn}
-            exiting={FadeOut}
-            style={[
-              styles.resultContainer,
-              { backgroundColor: isCorrect ? '#4ECDC4' : '#FF6B6B' },
-            ]}
-          >
-            <Text style={styles.resultText}>
-              {isCorrect ? 'Correct! 🎉' : 'Try Again! 💪'}
-            </Text>
+        // Determine background color based on state
+        const getBackgroundColor = () => {
+          if (isSelected) {
+            return isCorrect ? '#4ECDC4' : '#FF6B6B'; // Green for correct, Red for incorrect
+          }
+          if (selectedAnswer && isTheCorrectAnswer) {
+            return '#4ECDC4'; // Show correct answer if user was wrong
+          }
+          return '#3A3D42'; // Default dark grey
+        };
+        
+        return (
+          <Animated.View key={option} entering={FadeInDown.delay(100 * index).duration(400)}>
+            <Pressable
+              onPress={() => handleAnswerPress(option)}
+              disabled={selectedAnswer !== null}
+              style={[
+                styles.optionButton,
+                { backgroundColor: getBackgroundColor() },
+                isSelected && styles.selectedOption,
+              ]}>
+              <Text style={styles.optionText}>{option}</Text>
+            </Pressable>
           </Animated.View>
-        )}
-      </Animated.View>
-    );
-  };
+        );
+      })}
+    </View>
+  );
+
+  const renderGameOver = () => (
+    <Animated.View entering={FadeIn.duration(800)} style={styles.gameOverContainer}>
+      <Icon name="trophy-variant" size={wp('30%')} color="#FFD700" />
+      <Text style={styles.gameOverTitle}>Challenge Complete!</Text>
+      <Text style={styles.gameOverSubtitle}>You scored</Text>
+      <Text style={styles.finalScoreText}>
+        {score} / {TOTAL_QUESTIONS}
+      </Text>
+      
+      <Pressable style={styles.actionButton} onPress={restartGame}>
+        <Icon name="refresh" size={wp('6%')} color="#FFF" style={styles.buttonIcon} />
+        <Text style={styles.actionButtonText}>Try Again</Text>
+      </Pressable>
+      
+      <Pressable style={[styles.actionButton, styles.secondaryButton]} onPress={() => navigation.goBack()}>
+        <Icon name="home" size={wp('6%')} color="#FFF" style={styles.buttonIcon} />
+        <Text style={styles.actionButtonText}>Back to Home</Text>
+      </Pressable>
+    </Animated.View>
+  );
+  
+  if (questions.length === 0) {
+      // Loading state or could show a skeleton loader
+      return <View style={styles.container} />;
+  }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <LinearGradient
-        colors={['#4158D0', '#C850C0']}
-        style={styles.header}
-      >
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-        >
-          <Icon name="arrow-left" size={wp('6%')} color="#FFF" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Addition Challenge</Text>
-      </LinearGradient>
-
-      {!gameStarted ? renderDifficultySelection() : renderGame()}
-    </View>
+    <LinearGradient colors={['#1F2125', '#2C2F34']} style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      <View style={{ flex: 1, paddingTop: insets.top, paddingHorizontal: wp('5%') }}>
+        {renderHeader()}
+        {isGameOver ? (
+          renderGameOver()
+        ) : (
+          <>
+            {renderProgressBar()}
+            {renderQuestion()}
+            {renderOptions()}
+          </>
+        )}
+      </View>
+    </LinearGradient>
   );
 };
 
+// --- STYLESHEET ---
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
   },
   header: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: wp('5%'),
     paddingVertical: hp('2%'),
-    borderBottomLeftRadius: wp('5%'),
-    borderBottomRightRadius: wp('5%'),
-  },
-  backButton: {
-    padding: wp('2%'),
-  },
-  headerTitle: {
-    color: '#FFF',
-    fontSize: wp('5%'),
-    fontWeight: '700',
-    marginLeft: wp('3%'),
-  },
-  difficultyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: wp('5%'),
-  },
-  selectText: {
-    fontSize: wp('6%'),
-    fontWeight: '700',
-    marginBottom: hp('3%'),
-    color: '#333',
-  },
-  difficultyButtons: {
-    width: '100%',
-    gap: hp('2%'),
-  },
-  difficultyButton: {
-    width: '100%',
-    borderRadius: wp('3%'),
-    overflow: 'hidden',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-  },
-  gradientButton: {
-    padding: hp('2%'),
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  difficultyButtonText: {
-    color: '#FFF',
-    fontSize: wp('4.5%'),
-    fontWeight: '600',
-  },
-  gameContainer: {
-    flex: 1,
-    padding: wp('5%'),
   },
   scoreContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: hp('3%'),
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1%'),
+    borderRadius: wp('5%'),
   },
   scoreText: {
-    fontSize: wp('4.5%'),
-    fontWeight: '700',
-    color: '#333',
+    color: '#FFF',
+    fontSize: wp('5%'),
+    fontWeight: 'bold',
+    marginLeft: wp('2%'),
   },
-  streakText: {
-    fontSize: wp('4.5%'),
-    fontWeight: '700',
-    color: '#FF6B6B',
+  progressText: {
+    color: '#A9A9A9',
+    fontSize: wp('4%'),
+    alignSelf: 'center',
+    marginBottom: hp('1%'),
   },
-  problemContainer: {
-    backgroundColor: '#FFF',
-    padding: hp('3%'),
-    borderRadius: wp('5%'),
+  progressBarBackground: {
+    height: hp('1.5%'),
+    backgroundColor: '#3A3D42',
+    borderRadius: hp('1%'),
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: '#4ECDC4',
+    borderRadius: hp('1%'),
+  },
+  questionContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: hp('3%'),
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
   },
-  problemText: {
-    fontSize: wp('8%'),
+  questionText: {
+    color: '#FFF',
+    fontSize: wp('12%'),
     fontWeight: '700',
-    color: '#333',
+    textAlign: 'center',
   },
-  optionsContainer: {
+  optionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    gap: hp('2%'),
+    marginBottom: hp('4%'),
   },
   optionButton: {
-    width: '48%',
-    borderRadius: wp('3%'),
-    overflow: 'hidden',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    width: wp('42%'),
+    height: hp('10%'),
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: wp('5%'),
+    marginBottom: hp('2%'),
+    borderWidth: 2,
+    borderColor: '#4A4E54',
+  },
+  selectedOption: {
+    transform: [{ scale: 1.05 }],
+    shadowColor: '#FFF',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 10,
   },
   optionText: {
     color: '#FFF',
-    fontSize: wp('5%'),
-    fontWeight: '600',
+    fontSize: wp('7%'),
+    fontWeight: 'bold',
   },
-  resultContainer: {
-    position: 'absolute',
-    bottom: hp('5%'),
-    left: wp('5%'),
-    right: wp('5%'),
-    padding: hp('2%'),
-    borderRadius: wp('3%'),
+  // Game Over Styles
+  gameOverContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  resultText: {
+  gameOverTitle: {
+    fontSize: wp('8%'),
     color: '#FFF',
-    fontSize: wp('4.5%'),
-    fontWeight: '700',
+    fontWeight: 'bold',
+    marginTop: hp('2%'),
   },
+  gameOverSubtitle: {
+    fontSize: wp('5%'),
+    color: '#A9A9A9',
+    marginTop: hp('1%'),
+  },
+  finalScoreText: {
+    fontSize: wp('15%'),
+    color: '#4ECDC4',
+    fontWeight: 'bold',
+    marginVertical: hp('2%'),
+  },
+  actionButton: {
+    flexDirection: 'row',
+    backgroundColor: '#45B7D1',
+    width: '100%',
+    paddingVertical: hp('2%'),
+    borderRadius: wp('5%'),
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: hp('3%'),
+  },
+  secondaryButton: {
+    backgroundColor: '#3A3D42',
+    marginTop: hp('1.5%'),
+  },
+  actionButtonText: {
+    color: '#FFF',
+    fontSize: wp('5%'),
+    fontWeight: 'bold',
+  },
+  buttonIcon: {
+      marginRight: wp('3%')
+  }
 });
 
 export default Addition;
